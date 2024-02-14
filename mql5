@@ -1,0 +1,111 @@
+
+//+------------------------------------------------------------------+
+//|                                                Nadaraya Watson Envelop Alert                                           |
+//|                                        Developer's Site: forexroboteasy.com                                       |
+//|                                                     Forex Robot Easy Team                                                   |
+//+------------------------------------------------------------------+
+#property strict
+
+// Global variables
+double trendLineBuffer[];
+double upperEnvelopeBuffer[];
+double lowerEnvelopeBuffer[];
+double priceBuffer[];
+
+// Indicator input parameters
+input int period = 10;
+input double bandwidth = 0.5;
+
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+    // Initialize buffers
+    SetIndexBuffer(0, trendLineBuffer, INDICATOR_DATA);
+    SetIndexBuffer(1, upperEnvelopeBuffer, INDICATOR_CALCULATIONS);
+    SetIndexBuffer(2, lowerEnvelopeBuffer, INDICATOR_CALCULATIONS);
+    ArrayInitialize(trendLineBuffer, 0);
+    ArrayInitialize(upperEnvelopeBuffer, 0);
+    ArrayInitialize(lowerEnvelopeBuffer, 0);
+
+    // Set indicator label
+    string indicatorLabel = 'Nadaraya Watson Envelop Alert';
+    IndicatorSetString(INDICATOR_SHORTNAME, indicatorLabel);
+    
+    return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Custom indicator calculation function                            |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+{
+    int limit = rates_total - prev_calculated;
+    if(prev_calculated > 0) limit++;
+    
+    // Calculate trend line using Nadaraya Watson non-parametric regression
+    for(int i = 0; i < limit; i++)
+    {
+        double sumWeights = 0;
+        double sumPrices = 0;
+        
+        for(int j = 0; j < period; j++)
+        {
+            double weight = kernelFunction(i + j, prev_calculated, bandwidth);
+            sumWeights += weight;
+            sumPrices += close[i + j] * weight;
+        }
+        
+        trendLineBuffer[i] = sumPrices / sumWeights;
+    }
+    
+    // Calculate envelopes
+    for(int i = 0; i < limit; i++)
+    {
+        double sumSquaredDeviations = 0;
+        
+        for(int j = 0; j < period; j++)
+        {
+            double deviation = close[i + j] - trendLineBuffer[i + j];
+            sumSquaredDeviations += deviation * deviation;
+        }
+        
+        double standardDeviation = MathSqrt(sumSquaredDeviations / period);
+        
+        upperEnvelopeBuffer[i] = trendLineBuffer[i] + 2 * standardDeviation;
+        lowerEnvelopeBuffer[i] = trendLineBuffer[i] - 2 * standardDeviation;
+    }
+    
+    // Generate alerts, emails, and notifications when price crosses above/below envelopes
+    for(int i = limit - 2; i >= 0; i--)
+    {
+        if(close[i] > upperEnvelopeBuffer[i] && close[i + 1] <= upperEnvelopeBuffer[i + 1])
+        {
+            // Price crossing above upper envelope, generate alert/email/notification
+            Alert('Price crossed above upper envelope');
+            SendMail('forexroboteasy.com', 'Price crossed above upper envelope', 'Alert');
+            // Add your notification code here
+        }
+        else if(close[i] < lowerEnvelopeBuffer[i] && close[i + 1] >= lowerEnvelopeBuffer[i + 1])
+        {
+            // Price crossing below lower envelope, generate alert/email/notification
+            Alert('Price crossed below lower envelope');
+            SendMail('forexroboteasy.com', 'Price crossed below lower envelope', 'Alert');
+            // Add your notification code here
+        }
+    }
+    
+    return(rates_total);
+}
+
+//+------------------------------------------------------------------+
+//| Custom kernel function                                           |
+//+------------------------------------------------------------------+
+double kernelFunction(const int index, const int prev_calculated, const double bandwidth)
+{
+    double u = (index - prev_calculated) / bandwidth;
+    return MathExp(-0.5 * u * u) / MathSqrt(2 * MathPi);
+}
+
+//+------------------------------------------------------------------+
